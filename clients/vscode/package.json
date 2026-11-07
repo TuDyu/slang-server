@@ -1,9 +1,9 @@
 {
   "name": "vscode-slang",
-  "displayName": "slang-server: Verilog/SystemVerilog LSP",
-  "description": "Verilog and SystemVerilog support via the slang language server.",
+  "displayName": "slang-server (fork): Verilog/SystemVerilog LSP",
+  "description": "Verilog and SystemVerilog support via the slang language server. Fork build.",
   "version": "0.3.3",
-  "publisher": "Hudson-River-Trading",
+  "publisher": "TuDyu",
   "keywords": [
     "verilog",
     "system verilog",
@@ -11,14 +11,14 @@
     "fpga",
     "slang"
   ],
-  "homepage": "https://hudson-trading.github.io/slang-server",
+  "homepage": "https://github.com/TuDyu/slang-server",
   "repository": {
     "type": "git",
-    "url": "https://github.com/hudson-trading/slang-server",
+    "url": "https://github.com/TuDyu/slang-server",
     "directory": "clients/vscode"
   },
   "bugs": {
-    "url": "https://github.com/hudson-trading/slang-server/issues"
+    "url": "https://github.com/TuDyu/slang-server/issues"
   },
   "engines": {
     "vscode": "^1.96.2"

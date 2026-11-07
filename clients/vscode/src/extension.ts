@@ -635,6 +635,10 @@ export async function activate(context: vscode.ExtensionContext) {
   await ext.activateExtension('slang', 'slang', context, [
     'AndrewNolte.vscode-system-verilog',
     'AndrewNolte.vscode-slang',
+    // The upstream extension registers the same language, commands and settings, so
+    // running it alongside this fork fights over `.slang` configuration and starts a
+    // second language server.
+    'Hudson-River-Trading.vscode-slang',
     'mshr-h.veriloghdl',
     'eirikpre.systemverilog',
     'IMCTradingBV.svlangserver',
