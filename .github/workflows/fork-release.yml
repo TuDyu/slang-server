@@ -36,6 +36,12 @@ on:
         required: false
         type: string
         default: release
+      prerelease:
+        description: 'Mark the release as a pre-release. Pre-releases are hidden from the repository
+          sidebar, so this defaults to false.'
+        required: false
+        type: boolean
+        default: false
       dry_run:
         description: 'Build and assemble assets without creating a release.'
         required: false
@@ -116,10 +122,12 @@ jobs:
             echo "'$TAG' is not a valid tag; expected v<major>.<minor>.<patch>[-suffix]" >&2
             exit 1
           fi
-          # A "-suffix" makes the release a semver pre-release. Plain vX.Y.Z stays normal.
-          PRERELEASE=false
-          if printf '%s' "${TAG#v}" | grep -q '-'; then
-            PRERELEASE=true
+          # Fork releases are the fork's normal output, so they are not marked as
+          # pre-releases by default: GitHub hides pre-releases from the repository
+          # sidebar and from /releases/latest.
+          PRERELEASE="${{ inputs.prerelease }}"
+          if [ -z "$PRERELEASE" ]; then
+            PRERELEASE=false
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
@@ -155,18 +163,13 @@ jobs:
         working-directory: clients/vscode
         env:
           TAG: ${{ steps.tag.outputs.tag }}
-          PRERELEASE: ${{ steps.tag.outputs.prerelease }}
         run: |
           set -euo pipefail
           pnpm install --frozen-lockfile
           # Ship the extension with the same version as the tag, so installs can be
           # traced back to a fork release.
           npm version "${TAG#v}" --no-git-tag-version --allow-same-version
-          EXTRA=()
-          if [ "$PRERELEASE" = "true" ]; then
-            EXTRA=(--pre-release)
-          fi
-          pnpm package --out "../../release-assets/vscode-slang-${TAG}.vsix" "${EXTRA[@]}"
+          pnpm package --out "../../release-assets/vscode-slang-${TAG}.vsix"
 
       - name: Create release
         if: inputs.dry_run == false
@@ -177,16 +180,29 @@ jobs:
           TAG="${{ steps.tag.outputs.tag }}"
           PRERELEASE="${{ steps.tag.outputs.prerelease }}"
           if gh release view "$TAG" > /dev/null 2>&1; then
-            echo "Release $TAG already exists; uploading assets with --clobber"
+            echo "Release $TAG already exists; syncing assets and flags"
             gh release upload "$TAG" release-assets/* --clobber
+            # Re-running must be able to correct the prerelease flag of an existing release.
+            if [ "$PRERELEASE" = "true" ]; then
+              gh release edit "$TAG" --prerelease
+            else
+              gh release edit "$TAG" --prerelease=false --latest
+            fi
             exit 0
           fi
           TARGET_ARGS=()
           if [ "${{ github.ref_type }}" != "tag" ]; then
             TARGET_ARGS=(--target "$(git rev-parse HEAD)")
           fi
+          # --latest conflicts with --prerelease, so only claim the Latest badge for
+          # normal releases.
+          LATEST_ARGS=(--latest)
+          if [ "$PRERELEASE" = "true" ]; then
+            LATEST_ARGS=()
+          fi
           gh release create "$TAG" release-assets/* \
             "${TARGET_ARGS[@]}" \
+            "${LATEST_ARGS[@]}" \
             --title "slang-server $TAG" \
             --prerelease="$PRERELEASE" \
             --generate-notes
