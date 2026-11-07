@@ -1,0 +1,191 @@
+# ------------------------------------------------------------------------------
+# This workflow is fork-specific and is not meant to be submitted upstream.
+#
+# It builds release binaries with the regular CI matrix and publishes them as a
+# GitHub release in this fork. Unlike upstream's release workflow it never bumps
+# VERSION, never pushes to a branch, and needs no marketplace secrets.
+#
+# Two ways to release:
+#   1. Push a tag such as v0.3.1-tudyu.1. Any tag with a "-" suffix is published
+#      as a pre-release.
+#   2. Run this workflow manually and pass either a suffix or a full tag.
+#
+# It must live on the repository's default branch for the "Run workflow" button
+# to appear, which is why the fork's default branch is "release".
+# ------------------------------------------------------------------------------
+name: Fork Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      suffix:
+        description:
+          'Suffix appended to VERSION, e.g. "tudyu.1" produces v0.3.1-tudyu.1. Ignored when tag is
+          set.'
+        required: false
+        type: string
+        default: ''
+      tag:
+        description: 'Exact tag to publish. Leave empty to derive it from VERSION and the suffix.'
+        required: false
+        type: string
+        default: ''
+      ref:
+        description: 'Git ref to build (branch, tag, or commit).'
+        required: false
+        type: string
+        default: release
+      dry_run:
+        description: 'Build and assemble assets without creating a release.'
+        required: false
+        type: boolean
+        default: false
+  push:
+    tags:
+      # Upstream tags are plain "v0.3.1"; fork tags always carry a suffix, so the
+      # two never collide and an upstream tag push cannot start a fork release.
+      - 'v*-*'
+    # To release on every merge into release instead of on tags, uncomment this.
+    # Note that syncing upstream (git merge main) would then also publish a
+    # release, which is usually not what you want.
+    # branches:
+    #   - release
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+    with:
+      upload_artifacts: true
+      ref: ${{ inputs.ref || github.ref_name }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout build ref
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: 'pnpm'
+          cache-dependency-path: 'clients/vscode/pnpm-lock.yaml'
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+          fi
+          if [ -z "$TAG" ]; then
+            VERSION="$(tr -d '[:space:]' < VERSION)"
+            SUFFIX="${{ inputs.suffix }}"
+            if [ -z "$SUFFIX" ]; then
+              SUFFIX="tudyu.${{ github.run_number }}"
+            fi
+            TAG="v${VERSION}-${SUFFIX}"
+          fi
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$'; then
+            echo "'$TAG' is not a valid tag; expected v<major>.<minor>.<patch>[-suffix]" >&2
+            exit 1
+          fi
+          # A "-suffix" makes the release a semver pre-release. Plain vX.Y.Z stays normal.
+          PRERELEASE=false
+          if printf '%s' "${TAG#v}" | grep -q '-'; then
+            PRERELEASE=true
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag: $TAG (prerelease=$PRERELEASE)"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+          pattern: slang-server-*
+
+      - name: Assemble release assets
+        id: assets
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          shopt -s nullglob
+          found=0
+          for file in artifacts/*.tar.gz artifacts/*.zip; do
+            cp "$file" release-assets/
+            found=$((found + 1))
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "No release archives were produced by the build." >&2
+            exit 1
+          fi
+          ls -lh release-assets/
+          echo "count=$found" >> "$GITHUB_OUTPUT"
+
+      - name: Package the VS Code extension
+        continue-on-error: true
+        working-directory: clients/vscode
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          # Ship the extension with the same version as the tag, so installs can be
+          # traced back to a fork release.
+          npm version "${TAG#v}" --no-git-tag-version --allow-same-version
+          pnpm package --out "../../release-assets/vscode-slang-${TAG}.vsix"
+
+      - name: Create release
+        if: inputs.dry_run == false
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          PRERELEASE="${{ steps.tag.outputs.prerelease }}"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release $TAG already exists; uploading assets with --clobber"
+            gh release upload "$TAG" release-assets/* --clobber
+            exit 0
+          fi
+          TARGET_ARGS=()
+          if [ "${{ github.ref_type }}" != "tag" ]; then
+            TARGET_ARGS=(--target "$(git rev-parse HEAD)")
+          fi
+          gh release create "$TAG" release-assets/* \
+            "${TARGET_ARGS[@]}" \
+            --title "slang-server $TAG" \
+            --prerelease="$PRERELEASE" \
+            --generate-notes
+          echo "Published https://github.com/${GITHUB_REPOSITORY}/releases/tag/$TAG"
+
+      - name: Summarize
+        run: |
+          {
+            echo "### Fork release"
+            echo "- tag: \`${{ steps.tag.outputs.tag }}\`"
+            echo "- pre-release: ${{ steps.tag.outputs.prerelease }}"
+            echo "- assets: ${{ steps.assets.outputs.count }} archive(s)"
+            if [ "${{ inputs.dry_run }}" = "true" ]; then
+              echo "- dry run: nothing was published"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
