@@ -22,6 +22,36 @@ static int CONFIG_READ_FLAGS = YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TR
 
 namespace fs = std::filesystem;
 
+namespace {
+/// Merge `src` into `dst`: objects merge by key, arrays append, scalars overwrite.
+void mergeGeneric(rfl::Generic& dst, const rfl::Generic& src) {
+    if (auto srcObject = src.to_object()) {
+        if (auto dstObject = dst.to_object()) {
+            auto merged = *dstObject;
+            for (const auto& [key, value] : *srcObject) {
+                auto existing = std::find_if(merged.begin(), merged.end(),
+                                             [&](const auto& entry) { return entry.first == key; });
+                if (existing == merged.end())
+                    merged.insert(key, value);
+                else
+                    mergeGeneric(existing->second, value);
+            }
+            dst = merged;
+            return;
+        }
+    }
+    if (auto srcArray = src.to_array()) {
+        if (auto dstArray = dst.to_array()) {
+            auto merged = *dstArray;
+            merged.insert(merged.end(), srcArray->begin(), srcArray->end());
+            dst = merged;
+            return;
+        }
+    }
+    dst = src;
+}
+} // namespace
+
 rfl::Result<std::string> Config::expandPathVariables(
     std::string_view path, const std::map<std::string, std::string>& environmentOverrides) {
     if (path.find('$') == std::string_view::npos)
@@ -89,23 +119,10 @@ rfl::Result<Config> Config::fromFiles(const std::optional<std::string>& workspac
         }
 
         for (const auto& [k, v] : *object) {
-            if (k == "env") {
-                auto env = config[k].to_object().value();
-                const auto newEnv = v.to_object().value();
-                for (const auto& [name, value] : newEnv)
-                    env[name] = value;
-                config[k] = env;
-            }
-            else if (auto existingArray = config[k].to_array()) {
-                auto arr = existingArray.value();
-                auto newArr = v.to_array().value();
-                arr.reserve(arr.size() + newArr.size());
-                arr.insert(arr.end(), newArr.begin(), newArr.end());
-                config[k] = arr;
-            }
-            else {
-                config[k] = v;
-            }
+            if (config.count(k) == 0)
+                config.insert(k, v);
+            else
+                mergeGeneric(config[k], v);
         }
         return *object;
     };

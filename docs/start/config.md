@@ -134,6 +134,48 @@ All configuration options are optional and have sensible defaults. In VSCode, th
 
 ---
 
+### `diagnostics`
+
+:   **Type:** `object`
+
+    Controls which warnings the server reports and how they appear. Without this section every warning is reported, matching the behaviour of earlier versions.
+
+    The easiest way to edit it is the **slang: Configure Diagnostics and Warnings** panel in VS Code, which
+    lists every configurable warning together with its current state and writes the change to whichever of
+    the three configuration files you choose.
+
+    **Example:**
+
+    ```json
+    "diagnostics": {
+      "warnings": "all",
+      "ignore": ["unused-variable", "width-trunc"],
+      "severity": { "implicit-conv": "error", "unused-def": "hint" },
+      "suppressPaths": ["build/**", "third_party/**"],
+      "notes": false,
+      "errorLimit": 0
+    }
+    ```
+
+    | Key | Type | Default | Meaning |
+    | --- | --- | --- | --- |
+    | `warnings` | `"all"` \| `"none"` \| `"slang"` | `"all"` | Baseline for warnings that have no explicit setting. `"slang"` keeps slang's own default set, as if no `-W` options were passed. |
+    | `notes` | `boolean` | `true` | Whether the secondary notes attached to a diagnostic are reported. |
+    | `ignore` | `list[string]` | `[]` | Warning names to silence, equivalent to `-Wno-<name>`. |
+    | `severity` | `map[string, string]` | `{}` | Per-warning severity: `"error"`, `"warning"`, `"information"`, or `"hint"`. |
+    | `suppressPaths` | `list[string]` | `[]` | Paths or globs, relative to the workspace root, whose warnings are hidden. |
+    | `errorLimit` | `integer` | `0` | Maximum number of errors to report; `0` disables the limit. |
+
+    Warning names are the codes shown on the diagnostic and listed at [sv-lang.com/warning-ref.html](https://sv-lang.com/warning-ref.html). Unknown names are reported in the `slang-server` output channel instead of being silently ignored.
+
+    `flags` still takes precedence: a `-W` option written there overrides the same warning from this section, and an explicit `-Wnone` or `-Weverything` wins over `warnings`.
+
+    Lists are appended across workspace, user, and local configuration, `severity` maps merge with later files winning, and scalars are overridden by later files. Only `severity` support demoting a warning to `information` or `hint`; slang itself only has error/warning severities, so those levels are applied by the server when publishing diagnostics.
+
+    **Example:** `"diagnostics": { "warnings": "none", "severity": { "implicit-conv": "warning" } }` hides everything except implicit conversions.
+
+---
+
 ### `incdirs`
 
 :   **Type:** `list[string]`

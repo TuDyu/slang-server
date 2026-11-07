@@ -28,6 +28,7 @@
 #include <rfl/Variant.hpp>
 #include <rfl/json.hpp>
 #include <variant>
+#include <tuple>
 #include <vector>
 
 #include "slang/driver/Driver.h"
@@ -114,6 +115,10 @@ public:
 
     const Config& getConfig() const { return m_config; }
 
+    /// Paths of the three layered configuration files, from lowest to highest precedence.
+    std::tuple<std::optional<std::string>, std::optional<std::string>, std::optional<std::string>>
+    getConfigFilePaths() const;
+
 #ifdef SLANG_SERVER_DEBUG
     /// Scan an open document and publish language-feature coverage findings as diagnostics.
     DebugScanResult debugScanDocument(const lsp::TextDocumentIdentifier& document,
@@ -189,6 +194,44 @@ public:
 
     /// Discover workspace settings, update .slang/server.json, and reload the server.
     bool autoConfigure(const std::monostate&);
+
+    ////////////////////////////////////////////////
+    /// Configuration Catalog
+    ////////////////////////////////////////////////
+
+    /// One configurable slang warning, for client configuration UIs.
+    struct DiagnosticOption {
+        /// -W option name, e.g. "unused-variable".
+        std::string code;
+        /// C++ diagnostic name, e.g. "UnusedVariable".
+        std::string name;
+        /// slang subsystem that emits the warning.
+        std::string subsystem;
+        /// Format string of the warning message.
+        std::string description;
+        /// Warning groups the option belongs to.
+        std::vector<std::string> groups;
+    };
+
+    /// Everything a client needs to present the layered configuration files and the
+    /// state of every configurable warning.
+    struct ConfigCatalog {
+        /// Configurable warnings, sorted by option name.
+        std::vector<DiagnosticOption> diagnostics;
+        /// Layered config file paths, lowest precedence first.
+        std::optional<std::string> workspaceFile;
+        std::optional<std::string> userFile;
+        std::optional<std::string> localFile;
+        bool workspaceFileExists = false;
+        bool userFileExists = false;
+        bool localFileExists = false;
+        /// Merged diagnostics settings currently applied by the server.
+        Config::Diagnostics effectiveDiagnostics;
+    };
+
+    /// Return the layered config files, the diagnostics catalog, and the effective
+    /// diagnostics configuration.
+    ConfigCatalog getConfigCatalog(const std::monostate&) const;
 
     ////////////////////////////////////////////////
     /// Server Lifecycle

@@ -291,6 +291,30 @@ endif()
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/src/util/VersionInfo.cpp.in
                ${CMAKE_CURRENT_BINARY_DIR}/VersionInfo.cpp @ONLY)
 
+# Generate the catalog of configurable diagnostics. slang only ships the -W option
+# names, groups and descriptions in scripts/diagnostics.txt, so a configuration UI
+# needs this parsed into a table.
+if(NOT Python_EXECUTABLE)
+  find_package(Python COMPONENTS Interpreter)
+endif()
+
+if(Python_EXECUTABLE)
+  set(DIAG_CATALOG_INC ${CMAKE_CURRENT_BINARY_DIR}/DiagCatalog.inc)
+  add_custom_command(
+    OUTPUT ${DIAG_CATALOG_INC}
+    COMMAND
+      ${Python_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_diag_catalog.py
+      --input ${CMAKE_CURRENT_SOURCE_DIR}/external/slang/scripts/diagnostics.txt
+      --output ${DIAG_CATALOG_INC}
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_diag_catalog.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/external/slang/scripts/diagnostics.txt
+    COMMENT "Generating diagnostic catalog")
+  add_custom_target(diag_catalog DEPENDS ${DIAG_CATALOG_INC})
+  set_source_files_properties(${DIAG_CATALOG_INC} PROPERTIES GENERATED TRUE)
+else()
+  message(FATAL_ERROR "Python is required to generate the diagnostic catalog")
+endif()
+
 # Build the slang-server library
 add_library(
   slang_server_obj_lib OBJECT
@@ -325,6 +349,7 @@ add_library(
   src/lsp/FileWatchers.cpp
   src/lsp/URI.cpp
   src/util/Converters.cpp
+  src/util/DiagnosticCatalog.cpp
   src/util/Formatting.cpp
   src/util/SlangExtensions.cpp
   src/util/Markdown.cpp
@@ -333,9 +358,12 @@ add_library(
   src/Indexer.cpp
   src/ServerDriver.cpp
   src/SlangServer.cpp
-  src/ServerDiagClient.cpp)
+  src/ServerDiagClient.cpp
+  ${DIAG_CATALOG_INC})
 
 target_include_directories(slang_server_obj_lib PUBLIC include)
+target_include_directories(slang_server_obj_lib PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+add_dependencies(slang_server_obj_lib diag_catalog)
 if(SLANG_SERVER_DEBUG)
   target_compile_definitions(slang_server_obj_lib PUBLIC SLANG_SERVER_DEBUG)
   target_sources(slang_server_obj_lib PRIVATE src/debug/DocumentScan.cpp

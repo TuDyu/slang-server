@@ -17,6 +17,7 @@
 #include "lsp/LspTypes.h"
 #include "lsp/URI.h"
 #include "util/Converters.h"
+#include "util/DiagnosticCatalog.h"
 #include "util/Logging.h"
 #include <algorithm>
 #include <cctype>
@@ -164,6 +165,8 @@ lsp::InitializeResult SlangServer::getInitialize(const lsp::InitializeParams& pa
     registerCommand<std::string, std::monostate, &SlangServer::addDefine>("slang.addDefine");
     registerCommand<std::nullopt_t, bool>("slang.autoConfigure",
                                           [this](std::monostate) { return autoConfigure({}); });
+    registerCommand<std::monostate, ConfigCatalog, &SlangServer::getConfigCatalog>(
+        "slang.getConfigCatalog");
 
 #ifdef SLANG_SERVER_DEBUG
     registerCommand<lsp::TextDocumentIdentifier, DebugScanResult, &SlangServer::debugScanDocument>(
@@ -873,20 +876,9 @@ bool SlangServer::loadConfig(const Config& config, bool forceIndexing, bool requ
 }
 
 bool SlangServer::loadConfig(bool requireValidConfig) {
-    std::optional<std::string> workspaceConf, userConf, localConf;
-
-    if (m_workspaceFolder) {
-        auto fsPath = fs::path(m_workspaceFolder->uri.getPath());
-        workspaceConf = (fsPath / ".slang" / "server.json").string();
-        localConf = (fsPath / ".slang" / "local" / "server.json").string();
-    }
-    else {
+    auto [workspaceConf, userConf, localConf] = getConfigFilePaths();
+    if (!m_workspaceFolder)
         WARN("No workspace folder provided, skipping workspace config");
-    }
-
-    auto home = std::getenv("HOME");
-    if (home && !std::getenv("SLANG_SERVER_TESTS"))
-        userConf = (fs::path(home) / ".slang" / "server.json").string();
 
     auto config = Config::fromFiles(workspaceConf, userConf, localConf);
     if (!config) {
@@ -898,6 +890,61 @@ bool SlangServer::loadConfig(bool requireValidConfig) {
         return m_driver ? false : loadConfig(Config{}, true);
     }
     return loadConfig(*config, true, requireValidConfig);
+}
+
+std::tuple<std::optional<std::string>, std::optional<std::string>, std::optional<std::string>>
+SlangServer::getConfigFilePaths() const {
+    std::optional<std::string> workspaceConf, userConf, localConf;
+
+    if (m_workspaceFolder) {
+        auto fsPath = fs::path(m_workspaceFolder->uri.getPath());
+        workspaceConf = (fsPath / ".slang" / "server.json").string();
+        localConf = (fsPath / ".slang" / "local" / "server.json").string();
+    }
+
+    auto home = std::getenv("HOME");
+    if (home && !std::getenv("SLANG_SERVER_TESTS"))
+        userConf = (fs::path(home) / ".slang" / "server.json").string();
+
+    return {workspaceConf, userConf, localConf};
+}
+
+SlangServer::ConfigCatalog SlangServer::getConfigCatalog(const std::monostate&) const {
+    ConfigCatalog result;
+    auto [workspaceFile, userFile, localFile] = getConfigFilePaths();
+
+    auto fileExists = [](const std::optional<std::string>& path) {
+        return path && fs::exists(*path);
+    };
+
+    result.workspaceFile = workspaceFile;
+    result.userFile = userFile;
+    result.localFile = localFile;
+    result.workspaceFileExists = fileExists(workspaceFile);
+    result.userFileExists = fileExists(userFile);
+    result.localFileExists = fileExists(localFile);
+    result.effectiveDiagnostics = m_config.diagnostics.value();
+
+    auto catalog = getDiagnosticCatalog();
+    result.diagnostics.reserve(catalog.size());
+    for (const auto& entry : catalog) {
+        DiagnosticOption option{
+            .code = std::string(entry.optionName),
+            .name = std::string(entry.name),
+            .subsystem = std::string(entry.subsystem),
+            .description = std::string(entry.description),
+            .groups = {},
+        };
+        for (auto group : std::views::split(entry.groups, ',')) {
+            std::string name(group.begin(), group.end());
+            if (!name.empty())
+                option.groups.push_back(std::move(name));
+        }
+        result.diagnostics.push_back(std::move(option));
+    }
+
+    std::ranges::sort(result.diagnostics, {}, &DiagnosticOption::code);
+    return result;
 }
 
 std::monostate SlangServer::addDefine(const std::string& macroName) {

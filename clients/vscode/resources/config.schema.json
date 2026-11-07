@@ -108,6 +108,10 @@
           "$ref": "#/$defs/Config__InlayHints",
           "description": "Inline hints for things like ordered arguments, wildcard ports, and others"
         },
+        "diagnostics": {
+          "$ref": "#/$defs/Config__Diagnostics",
+          "description": "Diagnostic and warning filtering options"
+        },
         "builds": {
           "type": "array",
           "description": "Builds for direct .f selection or command-based .f generation",
@@ -139,6 +143,58 @@
         "command": {
           "type": "string",
           "description": "Optional command that produces .f content on stdout when passed the selected file"
+        }
+      },
+      "required": []
+    },
+    "Config__Diagnostics": {
+      "type": "object",
+      "properties": {
+        "warnings": {
+          "description": "Baseline set of warnings: 'all' enables every warning, 'none' disables all warnings, and 'slang' keeps slang's own default set (as if no -W options were passed).",
+          "oneOf": [
+            {
+              "description": "Enable every warning.",
+              "const": "all"
+            },
+            {
+              "description": "Disable every warning.",
+              "const": "none"
+            },
+            {
+              "description": "Use slang's default warning set, as if no -W options were passed.",
+              "const": "slang"
+            }
+          ]
+        },
+        "notes": {
+          "description": "Whether notes attached to other diagnostics are reported.",
+          "type": "boolean"
+        },
+        "ignore": {
+          "type": "array",
+          "description": "Warning names to suppress, equivalent to passing -Wno-<name>.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "severity": {
+          "type": "object",
+          "description": "Per-warning severity overrides. Keys are warning names; values are one of 'error', 'warning', 'information', or 'hint'.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "suppressPaths": {
+          "type": "array",
+          "description": "File path patterns whose warnings are suppressed, equivalent to passing --suppress-warnings.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "errorLimit": {
+          "type": "integer",
+          "description": "Maximum number of errors to report; 0 disables the limit."
         }
       },
       "required": []

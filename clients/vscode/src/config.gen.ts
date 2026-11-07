@@ -40,6 +40,8 @@ export interface Config {
   hovers?: Config__HoverConfig
   /** Inline hints for things like ordered arguments, wildcard ports, and others */
   inlayHints?: Config__InlayHints
+  /** Diagnostic and warning filtering options */
+  diagnostics?: Config__Diagnostics
   /** Builds for direct .f selection or command-based .f generation */
   builds?: Config__Build[]
 }
@@ -51,6 +53,21 @@ export interface Config__Build {
   glob?: string
   /** Optional command that produces .f content on stdout when passed the selected file */
   command?: string
+}
+
+export interface Config__Diagnostics {
+  /** Baseline set of warnings: 'all' enables every warning, 'none' disables all warnings, and 'slang' keeps slang's own default set (as if no -W options were passed). */
+  warnings?: "all" | "none" | "slang"
+  /** Whether notes attached to other diagnostics are reported. */
+  notes?: boolean
+  /** Warning names to suppress, equivalent to passing -Wno-<name>. */
+  ignore?: string[]
+  /** Per-warning severity overrides. Keys are warning names; values are one of 'error', 'warning', 'information', or 'hint'. */
+  severity?: Record<string, string>
+  /** File path patterns whose warnings are suppressed, equivalent to passing --suppress-warnings. */
+  suppressPaths?: string[]
+  /** Maximum number of errors to report; 0 disables the limit. */
+  errorLimit?: number
 }
 
 export interface Config__HoverConfig {

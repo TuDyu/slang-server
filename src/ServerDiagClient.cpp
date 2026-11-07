@@ -223,15 +223,24 @@ void ServerDiagClient::report(const slang::ReportedDiagnostic& diag) {
         }
     }
 
+    std::string_view optionName = engine->getOptionName(diag.originalDiagnostic.code);
+
+    lsp::DiagnosticSeverity severity = convertSeverity(diag.severity);
+    if (!optionName.empty()) {
+        if (auto it = m_severityOverrides.find(std::string(optionName));
+            it != m_severityOverrides.end()) {
+            severity = it->second;
+        }
+    }
+
     m_diagnostics[uri].push_back(lsp::Diagnostic{
         .range = mainLoc->range,
-        .severity = convertSeverity(diag.severity),
+        .severity = severity,
         .message = std::string{diag.formattedMessage},
         .relatedInformation = related.empty() ? std::nullopt : std::optional{related},
     });
 
     // Add diag code link if any
-    std::string_view optionName = engine->getOptionName(diag.originalDiagnostic.code);
     if (!optionName.empty()) {
         m_diagnostics[uri].back().code = {std::string(optionName)};
         m_diagnostics[uri].back().codeDescription = lsp::CodeDescription{

@@ -9,6 +9,17 @@ Saving a dependency also refreshes diagnostics in open files that depend on it, 
 
 ![goto-refs](/assets/images/lints.gif)
 
+#### Configuring warnings in VS Code
+
+Run **slang: Configure Diagnostics and Warnings** from the command palette to open a settings panel for the
+three layered configuration files (workspace, local, and user). The panel lists every warning slang can emit
+with its current state, so a warning can be turned off, promoted to an error, or demoted to a hint — one at a
+time, or several at once through the row checkboxes. File paths whose warnings should never be reported, the
+notes toggle, and the error limit live in the same panel. Values are written back to the chosen file,
+preserving its comments and formatting, and the panel follows edits made elsewhere.
+
+See [`diagnostics`](../start/config.md#diagnostics) for the underlying configuration keys.
+
 
 ### Hovers and Go-to Definition
 

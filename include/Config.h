@@ -147,6 +147,40 @@ struct Config {
                      InlayHints>
         inlayHints = InlayHints{};
 
+    struct Diagnostics {
+        enum class WarningSet { all, none, slang };
+
+        rfl::Description<
+            "Baseline set of warnings: 'all' enables every warning, 'none' disables all warnings, "
+            "and 'slang' keeps slang's own default set (as if no -W options were passed).",
+            WarningSet>
+            warnings = WarningSet::all;
+
+        rfl::Description<"Whether notes attached to other diagnostics are reported.", bool> notes =
+            true;
+
+        rfl::Description<"Warning names to suppress, equivalent to passing -Wno-<name>.",
+                         std::vector<std::string>>
+            ignore = {};
+
+        rfl::Description<
+            "Per-warning severity overrides. Keys are warning names; values are one of 'error', "
+            "'warning', 'information', or 'hint'.",
+            std::map<std::string, std::string>>
+            severity = {};
+
+        rfl::Description<"File path patterns whose warnings are suppressed, equivalent to "
+                         "passing --suppress-warnings.",
+                         std::vector<std::string>>
+            suppressPaths = {};
+
+        rfl::Description<"Maximum number of errors to report; 0 disables the limit.", int>
+            errorLimit = 0;
+    };
+
+    rfl::Description<"Diagnostic and warning filtering options", Diagnostics> diagnostics =
+        Diagnostics{};
+
     struct Build {
         rfl::Description<"Optional name used for generated build files and UI labels",
                          std::optional<std::string>>
@@ -185,6 +219,22 @@ struct Config {
 
     /// Per-file flags with correct precedence. Skipped during serialization.
     rfl::Skip<std::vector<FlagSource>> flagsByFile;
+};
+
+template<>
+struct rfl::config::enum_descriptions<Config::Diagnostics::WarningSet> {
+    static constexpr bool has_descriptions = true;
+    static constexpr std::string_view get(Config::Diagnostics::WarningSet value) {
+        switch (value) {
+            case Config::Diagnostics::WarningSet::all:
+                return "Enable every warning.";
+            case Config::Diagnostics::WarningSet::none:
+                return "Disable every warning.";
+            case Config::Diagnostics::WarningSet::slang:
+                return "Use slang's default warning set, as if no -W options were passed.";
+        }
+        return "";
+    }
 };
 
 template<>

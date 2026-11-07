@@ -11,6 +11,7 @@
 #include "lsp/URI.h"
 
 #include "slang/diagnostics/DiagnosticClient.h"
+#include <map>
 namespace server {
 class ServerDiagClient : public slang::DiagnosticClient {
 public:
@@ -42,6 +43,13 @@ public:
     // Add all uris to dirty so they get republished after new diags are added.
     void clear();
 
+    /// Replace the LSP severity used for specific diagnostics, keyed by -W option name.
+    /// Lets configuration demote warnings to information or hint, which slang has no
+    /// severity for.
+    void setSeverityOverrides(std::map<std::string, lsp::DiagnosticSeverity> overrides) {
+        m_severityOverrides = std::move(overrides);
+    }
+
 #ifdef SLANG_SERVER_DEBUG
     /// Replace scan findings while preserving compiler diagnostics for this document.
     void setDebugDiagnostics(const URI& uri, std::vector<lsp::Diagnostic> diagnostics);
@@ -51,6 +59,8 @@ private:
     std::unordered_map<URI, std::vector<lsp::Diagnostic>> m_diagnostics;
     // Uris that have modified diags yet to be pushed to the client
     slang::flat_hash_set<URI> m_dirtyUris;
+
+    std::map<std::string, lsp::DiagnosticSeverity> m_severityOverrides;
 
     const slang::SourceManager& m_sourceManager;
     std::string cwd;

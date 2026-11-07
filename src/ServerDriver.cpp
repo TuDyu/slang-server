@@ -18,6 +18,7 @@
 #include "lsp/RequestContext.h"
 #include "lsp/URI.h"
 #include "util/Converters.h"
+#include "util/DiagnosticCatalog.h"
 #include "util/Formatting.h"
 #include "util/Logging.h"
 #include "util/Markdown.h"
@@ -56,11 +57,114 @@ using namespace slang;
 bool ServerDriver::s_debugHoversEnabled = true;
 #endif
 
+namespace {
+
+/// Translate the `diagnostics` config block into diagnostic engine state.
+///
+/// Slang applies warnings while parsing flags, before the server can see them, so the
+/// configuration is applied on top of the flags-derived state. Blanket -Wnone /
+/// -Weverything options that the user passed explicitly always win, so they keep
+/// working even though the server otherwise enables every warning by default.
+void applyDiagnosticsConfig(slang::DiagnosticEngine& diagEngine, ServerDiagClient& diagClient,
+                            const Config& config, std::span<const std::string> flagOptions,
+                            std::string_view workspacePrefix) {
+    const auto& diagnostics = config.diagnostics.value();
+
+    const bool flagNone = std::ranges::find(flagOptions, "none") != flagOptions.end();
+    const bool flagEverything =
+        std::ranges::find(flagOptions, "everything") != flagOptions.end();
+
+    std::vector<std::string> warningOptions(flagOptions.begin(), flagOptions.end());
+    auto addOption = [&](std::string option) {
+        if (std::ranges::find(warningOptions, option) == warningOptions.end())
+            warningOptions.push_back(std::move(option));
+    };
+
+    auto validate = [](const std::string& warning) {
+        if (!findDiagnosticCatalogEntry(warning)) {
+            WARN("Unknown warning '{}' in diagnostics configuration", warning);
+            return false;
+        }
+        return true;
+    };
+
+    for (const auto& warning : diagnostics.ignore.value()) {
+        if (validate(warning))
+            addOption("no-" + warning);
+    }
+
+    std::map<std::string, lsp::DiagnosticSeverity> severityOverrides;
+    for (const auto& [warning, level] : diagnostics.severity.value()) {
+        if (!validate(warning))
+            continue;
+        if (level == "error") {
+            addOption("error=" + warning);
+        }
+        else if (level == "warning") {
+            addOption(warning);
+        }
+        else if (level == "hint" || level == "information") {
+            // Slang has no such severities, so keep the warning enabled and let the
+            // LSP client publish it with a lower severity.
+            addOption(warning);
+            auto severity = level == "hint" ? lsp::DiagnosticSeverity::Hint
+                                            : lsp::DiagnosticSeverity::Information;
+            severityOverrides.emplace(warning, severity);
+        }
+        else {
+            WARN("Unknown severity '{}' for warning '{}' in diagnostics configuration", level,
+                 warning);
+        }
+    }
+
+    if (!warningOptions.empty())
+        (void)diagEngine.setWarningOptions(warningOptions);
+
+    if (flagNone)
+        diagEngine.setIgnoreAllWarnings(true);
+    else if (flagEverything)
+        diagEngine.setIgnoreAllWarnings(false);
+    else {
+        switch (diagnostics.warnings.value()) {
+            case Config::Diagnostics::WarningSet::all:
+                diagEngine.setIgnoreAllWarnings(false);
+                break;
+            case Config::Diagnostics::WarningSet::none:
+                diagEngine.setIgnoreAllWarnings(true);
+                break;
+            case Config::Diagnostics::WarningSet::slang:
+                break;
+        }
+    }
+
+    diagEngine.setIgnoreAllNotes(!diagnostics.notes.value());
+
+    for (const auto& pattern : diagnostics.suppressPaths.value()) {
+        // Slang resolves patterns against the process directory and requires them to
+        // exist, which would silently ignore workspace-relative entries. Resolve them
+        // against the workspace instead, and leave `...` patterns untouched.
+        std::string resolved = pattern;
+        std::filesystem::path relative(pattern);
+        if (!pattern.starts_with("...") && !relative.is_absolute() && !workspacePrefix.empty()) {
+            auto full = std::filesystem::path(workspacePrefix) / relative;
+            resolved = full.lexically_normal().string();
+        }
+        if (auto ec = diagEngine.addIgnorePaths(resolved)) {
+            WARN("Cannot suppress warnings for '{}': {}", pattern, ec.message());
+        }
+    }
+
+    diagClient.setSeverityOverrides(std::move(severityOverrides));
+}
+
+} // namespace
+
 ServerDriver::ServerDriver(Indexer& indexer, SlangLspClient& client, const Config& config,
                            std::vector<std::string> buildfiles,
                            std::optional<std::string_view> workspaceFolder,
                            bool requireValidConfig) :
-    sm(driver.sourceManager), diagEngine(driver.diagEngine), client(client),
+    sm(driver.sourceManager),
+    diagEngine(driver.diagEngine), client(client),
     diagClient(std::make_shared<ServerDiagClient>(sm, client)),
     completions(*this, indexer, sm, options), codeActions(*this, sm, indexer), m_indexer(indexer),
     m_config(config), m_workspacePathPrefix(workspaceFolder.value_or("")) {
@@ -110,7 +214,7 @@ bool ServerDriver::parseAndLoadSources(const std::vector<std::string>& buildfile
         ok &= driver.parseCommandLine(src.flags, parseOpts);
     }
 
-    driver.options.errorLimit = 0;
+    driver.options.errorLimit = m_config.diagnostics.value().errorLimit.value();
     ok &= driver.processOptions(false);
     if (!ok && !requireValidConfig) {
         client.showError("Failed to parse config flags");
@@ -167,9 +271,8 @@ bool ServerDriver::parseAndLoadSources(const std::vector<std::string>& buildfile
     // Configure diagnostic engine. The LSP server reports warnings as editor
     // diagnostics by default; user-provided -Wno-* mappings still suppress
     // specific warnings via the severity table populated by processOptions().
-    diagEngine.setIgnoreAllWarnings(false);
-    diagEngine.setIgnoreAllNotes(false);
-
+    applyDiagnosticsConfig(diagEngine, *diagClient, m_config, driver.options.warningOptions,
+                           m_workspacePathPrefix);
     options = driver.createOptionBag();
     options.set(driver.getAnalysisOptions());
     ok &= driver.parseAllSources();
