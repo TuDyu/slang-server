@@ -323,3 +323,71 @@ tape(
     assert.end()
   }
 )
+
+tape('install: falls back to the release list when only pre-releases exist', async (assert) => {
+  const config = testConfig('linux')
+  const release = mockRelease('linux')
+  const fetchStub = sinon.stub(global, 'fetch').callsFake(async (url: RequestInfo | URL) => {
+    const urlStr = url.toString()
+    if (urlStr.endsWith('/releases/latest')) {
+      return new Response(JSON.stringify({ message: 'Not Found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    if (urlStr.includes('/releases?')) {
+      return new Response(
+        JSON.stringify([
+          { ...release, tag_name: 'v1.0.0-tudy.1107', name: 'v1.0.0-tudy.1107', prerelease: true },
+          { ...release, tag_name: 'v0.9.0', name: 'v0.9.0', draft: true },
+        ]),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+    return new Response(null, { status: 404 })
+  })
+
+  try {
+    const { latestRelease } = await import('../../src/lib/install')
+    const found = await latestRelease(config)
+    assert.equal(found.tag_name, 'v1.0.0-tudy.1107', 'picks the newest published pre-release')
+  } finally {
+    fetchStub.restore()
+  }
+
+  assert.end()
+})
+
+tape('install: prefers a stable release over a newer pre-release', async (assert) => {
+  const config = testConfig('linux')
+  const release = mockRelease('linux')
+  const fetchStub = sinon.stub(global, 'fetch').callsFake(async (url: RequestInfo | URL) => {
+    const urlStr = url.toString()
+    if (urlStr.endsWith('/releases/latest')) {
+      return new Response(JSON.stringify({ message: 'Not Found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    if (urlStr.includes('/releases?')) {
+      return new Response(
+        JSON.stringify([
+          { ...release, tag_name: 'v1.1.0-tudy.1107', name: 'v1.1.0-tudy.1107', prerelease: true },
+          { ...release, tag_name: 'v1.0.0', name: 'v1.0.0' },
+        ]),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+    return new Response(null, { status: 404 })
+  })
+
+  try {
+    const { latestRelease } = await import('../../src/lib/install')
+    const found = await latestRelease(config)
+    assert.equal(found.tag_name, 'v1.0.0', 'skips the pre-release when a stable release exists')
+  } finally {
+    fetchStub.restore()
+  }
+
+  assert.end()
+})

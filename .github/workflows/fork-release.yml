@@ -20,8 +20,8 @@ on:
     inputs:
       suffix:
         description:
-          'Suffix appended to VERSION, e.g. "tudyu.1" produces v0.3.1-tudyu.1. Ignored when tag is
-          set.'
+          'Suffix appended to VERSION, e.g. "tudy.1107" produces v0.3.1-tudy.1107. Defaults to
+          tudy.MMDD. Ignored when tag is set.'
         required: false
         type: string
         default: ''
@@ -99,7 +99,9 @@ jobs:
             VERSION="$(tr -d '[:space:]' < VERSION)"
             SUFFIX="${{ inputs.suffix }}"
             if [ -z "$SUFFIX" ]; then
-              SUFFIX="tudyu.${{ github.run_number }}"
+              # Date based, e.g. v0.3.1-tudy.1107. Re-running on the same day
+              # re-uploads the assets of that release instead of creating another.
+              SUFFIX="tudy.$(date -u +%m%d)"
             fi
             TAG="v${VERSION}-${SUFFIX}"
           fi
@@ -146,13 +148,18 @@ jobs:
         working-directory: clients/vscode
         env:
           TAG: ${{ steps.tag.outputs.tag }}
+          PRERELEASE: ${{ steps.tag.outputs.prerelease }}
         run: |
           set -euo pipefail
           pnpm install --frozen-lockfile
           # Ship the extension with the same version as the tag, so installs can be
           # traced back to a fork release.
           npm version "${TAG#v}" --no-git-tag-version --allow-same-version
-          pnpm package --out "../../release-assets/vscode-slang-${TAG}.vsix"
+          EXTRA=()
+          if [ "$PRERELEASE" = "true" ]; then
+            EXTRA=(--pre-release)
+          fi
+          pnpm package --out "../../release-assets/vscode-slang-${TAG}.vsix" "${EXTRA[@]}"
 
       - name: Create release
         if: inputs.dry_run == false

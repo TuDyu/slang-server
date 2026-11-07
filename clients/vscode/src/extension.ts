@@ -255,7 +255,8 @@ File input is sent to stdin, and formatted output is read from stdout.',
     {
       envVar: 'SLANG_SERVER_PATH',
       installer: {
-        githubRepo: 'hudson-trading/slang-server',
+        // This fork publishes its own builds, so managed installs come from here.
+        githubRepo: 'TuDyu/slang-server',
         assetNames: {
           windows: 'slang-server-windows-x64.zip',
           linux: 'slang-server-linux-x64.tar.gz',

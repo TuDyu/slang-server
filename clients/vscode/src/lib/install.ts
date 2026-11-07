@@ -48,6 +48,8 @@ type GithubRelease = {
   name: string
   tag_name: string
   assets: GithubAsset[]
+  draft?: boolean
+  prerelease?: boolean
 }
 
 const assetPlatformNames: PlatformMap = {
@@ -57,7 +59,7 @@ const assetPlatformNames: PlatformMap = {
 }
 
 export interface GithubInstallerConfig {
-  githubRepo: string // e.g., 'hudson-trading/slang-server'
+  githubRepo: string // e.g., 'owner/slang-server'
   assetNames: PlatformMap // asset name per platform
   platform?: Platform // optionally override platform detection
 }
@@ -70,7 +72,31 @@ export async function latestRelease(
   config: GithubInstallerConfig,
   logger?: InstallLogger
 ): Promise<GithubRelease> {
-  const url = `https://api.github.com/repos/${config.githubRepo}/releases/latest`
+  const base = `https://api.github.com/repos/${config.githubRepo}/releases`
+
+  // /releases/latest skips pre-releases. A fork may only publish pre-releases
+  // (for example v0.3.1-tudy.1107), so fall back to the release list and
+  // prefer a stable release when one exists.
+  const pickFromList = async (): Promise<GithubRelease | undefined> => {
+    const url = `${base}?per_page=30`
+    logger?.info(`Fetching release list from ${url}`)
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 5000)
+    try {
+      const response = await fetch(url, { signal: controller.signal })
+      logger?.info(`Release list response: HTTP ${response.status} ${response.statusText}`)
+      if (!response.ok) {
+        return undefined
+      }
+      const releases = (await response.json()) as GithubRelease[]
+      const published = releases.filter((release) => !release.draft)
+      return published.find((release) => !release.prerelease) ?? published[0]
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  const url = `${base}/latest`
   logger?.info(`Fetching release metadata from ${url}`)
 
   const timeoutController = new AbortController()
@@ -83,6 +109,10 @@ export async function latestRelease(
     })
     logger?.info(`Release metadata response: HTTP ${response.status} ${response.statusText}`)
     if (!response.ok) {
+      const fallback = await pickFromList()
+      if (fallback) {
+        return fallback
+      }
       throw new Error(`Can't fetch release: HTTP ${response.status} ${response.statusText}`)
     }
     return (await response.json()) as GithubRelease
