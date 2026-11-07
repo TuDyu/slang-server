@@ -391,6 +391,14 @@
         "title": "slang: Auto-configure"
       },
       {
+        "command": "slang.configureDiagnostics",
+        "title": "slang: Configure Diagnostics and Warnings"
+      },
+      {
+        "command": "slang.openConfigFile",
+        "title": "slang: Open Configuration File"
+      },
+      {
         "command": "slang.project.setTopLevel",
         "title": "Set Top Level",
         "shortTitle": "Set Top",
@@ -715,6 +723,7 @@
   "dependencies": {
     "decompress": "^4.2.1",
     "js-yaml": "^4.1.0",
+    "jsonc-parser": "^3.3.1",
     "semver": "^7.7.3",
     "string-argv": "^0.3.2",
     "vscode-languageclient": "^9.0.1",

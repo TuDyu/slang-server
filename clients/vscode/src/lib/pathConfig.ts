@@ -154,6 +154,16 @@ export class PathConfigObject extends ConfigObject<string> {
       return configuredPath
     }
 
+    // 2b. When developing this extension, prefer a locally built server so source
+    // changes are picked up instead of a downloaded release.
+    if (context.extensionMode !== vscode.ExtensionMode.Production) {
+      const localBuild = await this.findLocalBuild(context, toolName)
+      if (localBuild) {
+        log.info(`Using locally built ${toolName} at ${localBuild}`)
+        return localBuild
+      }
+    }
+
     // 3. Check if already installed in extension storage
     if (config) {
       const storagePath = context.globalStorageUri.fsPath
@@ -242,6 +252,45 @@ export class PathConfigObject extends ConfigObject<string> {
       }
       return undefined
     }
+  }
+
+  /// Look for `build/<preset>/bin/<binaryName>` in the repository this extension
+  /// lives in, for development builds made by hand or by CMake presets.
+  private async findLocalBuild(
+    context: vscode.ExtensionContext,
+    binaryName: string
+  ): Promise<string | null> {
+    const repoRoot = path.resolve(context.extensionPath, '..', '..')
+    const buildRoot = path.join(repoRoot, 'build')
+
+    const candidates: string[] = []
+    const addIfPresent = async (candidate: string) => {
+      try {
+        const stat = await fsPromises.stat(candidate)
+        if (stat.isFile()) {
+          candidates.push(candidate)
+        }
+      } catch {
+        // Not built
+      }
+    }
+
+    await addIfPresent(path.join(buildRoot, 'bin', binaryName))
+    try {
+      const presets = await fsPromises.readdir(buildRoot, { withFileTypes: true })
+      // Preset layouts like build/win64-debug/bin are the common case; prefer
+      // directories whose name mentions debug so breakpoints work by default.
+      const ordered = presets
+        .filter((entry) => entry.isDirectory())
+        .sort((a, b) => Number(b.name.includes('debug')) - Number(a.name.includes('debug')))
+      for (const preset of ordered) {
+        await addIfPresent(path.join(buildRoot, preset.name, 'bin', binaryName))
+      }
+    } catch {
+      return null
+    }
+
+    return candidates.length > 0 ? candidates[0] : null
   }
 
   private async findExistingBinary(root: string): Promise<string | null> {

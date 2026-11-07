@@ -34,6 +34,8 @@ import { glob } from 'glob'
 import { SlangClientInfoFeature } from './lib/clientInfo'
 import { InactiveRegionsFeature } from './lib/inactiveRegions'
 import { DebugScanFeature, debugScanCommand } from './lib/debugScan'
+import { openConfigurationFile } from './lib/configFiles'
+import { showConfigPanel } from './lib/configPanel'
 
 export var ext: SlangExtension
 
@@ -475,6 +477,24 @@ File input is sent to stdin, and formatted output is read from stdout.',
     },
     async () => {
       this.serverOutputChannel.show()
+    }
+  )
+
+  configureDiagnostics: CommandNode = new CommandNode(
+    {
+      title: 'Configure Diagnostics and Warnings',
+    },
+    async () => {
+      await showConfigPanel(this.context, this.client, this.logger)
+    }
+  )
+
+  openConfigFile: CommandNode = new CommandNode(
+    {
+      title: 'Open Configuration File',
+    },
+    async () => {
+      await openConfigurationFile(this.client, this.logger)
     }
   )
 
